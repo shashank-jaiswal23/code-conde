@@ -1,0 +1,25 @@
+# Ignore node_modules directory (we install dependencies in Docker)
+#node_modules
+
+# Ignore npm debug logs
+npm-debug.log
+
+# Ignore Docker-related files
+Dockerfile
+.dockerignore
+
+# Ignore git files
+.git
+.gitignore
+
+# Ignore all env files (unless needed for the build)
+#*.env
+
+# Ignore log and compressed files, but be specific about which to include
+*.log
+*.gz
+*.tar.gz
+
+# Allow specific files back into the build context if needed (uncomment as needed)
+# !.env.production
+# !.env.local

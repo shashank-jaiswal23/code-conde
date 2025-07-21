@@ -1,0 +1,102 @@
+kind: pipeline
+type: docker
+name: code-conde-website
+environment:
+  image_tag: code-conde
+trigger:
+  branch:
+    - master
+    - staging
+steps:
+  - name: Build container image Non Prod
+    image: 044418114861.dkr.ecr.us-east-1.amazonaws.com/devops/drone-docker-image-builder:1.0
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws-access-key-stag
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws-secret-key-stag
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_OUTPUT: text
+    when:
+      branch: staging
+    trigger:
+      event:
+        - push
+    volumes:
+      - name: docker.sock
+        path: /var/run/docker.sock
+      - name: dockers
+        path: /usr/bin/docker
+    commands:
+      - env
+      - docker login -u AWS -p $(aws ecr get-login-password --region $${AWS_DEFAULT_REGION}) 762411232876.dkr.ecr.us-east-1.amazonaws.com
+      - docker build -t 762411232876.dkr.ecr.us-east-1.amazonaws.com/code-conde-stag:$${image_tag}-$${CI_BUILD_NUMBER} .
+      - docker push 762411232876.dkr.ecr.us-east-1.amazonaws.com/code-conde-stag:$${image_tag}-$${CI_BUILD_NUMBER}
+  - name: Build container image Prod
+    image: 044418114861.dkr.ecr.us-east-1.amazonaws.com/devops/drone-docker-image-builder:1.0
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws-access-key-prod
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws-secret-key-prod
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_OUTPUT: text
+    when:
+      branch: master
+    trigger:
+      event:
+        - push
+    volumes:
+      - name: docker.sock
+        path: /var/run/docker.sock
+      - name: dockers
+        path: /usr/bin/docker
+    commands:
+      - docker login -u AWS -p $(aws ecr get-login-password --region $${AWS_DEFAULT_REGION}) 762411232876.dkr.ecr.us-east-1.amazonaws.com
+      - docker build -t 762411232876.dkr.ecr.us-east-1.amazonaws.com/code-conde-prod:$${image_tag}-$${CI_BUILD_NUMBER} .
+      - docker push 762411232876.dkr.ecr.us-east-1.amazonaws.com/code-conde-prod:$${image_tag}-$${CI_BUILD_NUMBER}
+  - name: Kubernetes prod deployment
+    image: 044418114861.dkr.ecr.us-east-1.amazonaws.com/devops/drone-eks-deployer:1.0
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws-access-key-prod
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws-secret-key-prod
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_OUTPUT: text
+      EKS_CLUSTER: devops-conde-prod01
+    when:
+      branch: master
+    trigger:
+      event:
+        - push
+    commands:
+      - aws eks update-kubeconfig --name $${EKS_CLUSTER} --kubeconfig "/drone/src/$${EKS_CLUSTER}"
+      - sed -i -e "s/IMAGE-VERSION/$${image_tag}-$${CI_BUILD_NUMBER}/g" /drone/src/kubeconfigs/prod/values.yaml
+      - helm upgrade code-conde-prod-helm /drone/src/kubeconfigs/prod/ --install --namespace code-conde-prod --kubeconfig "/drone/src/$${EKS_CLUSTER}"
+  - name: Kubernetes non-prod deployment
+    image: 044418114861.dkr.ecr.us-east-1.amazonaws.com/devops/drone-eks-deployer:1.0
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws-access-key-stag
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws-secret-key-stag
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_OUTPUT: text
+      EKS_CLUSTER: devops-conde-nonprod01
+    when:
+      branch: staging
+    trigger:
+      event:
+        - push
+    commands:
+      - aws eks update-kubeconfig --name $${EKS_CLUSTER} --kubeconfig "/drone/src/$${EKS_CLUSTER}"
+      - sed -i -e "s/IMAGE-VERSION/$${image_tag}-$${CI_BUILD_NUMBER}/g" /drone/src/kubeconfigs/nonprod/values.yaml
+      - helm upgrade code-conde-stag-helm /drone/src/kubeconfigs/nonprod/ --install --namespace code-conde-stag --kubeconfig "/drone/src/$${EKS_CLUSTER}"
+volumes:
+  - name: docker.sock
+    host:
+      path: /var/run/docker.sock
+  - name: dockers
+    host:
+      path: /usr/bin/docker
